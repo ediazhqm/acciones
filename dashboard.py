@@ -1,5 +1,6 @@
 import streamlit as st
 import yfinance as yf
+from yahooquery import Ticker as YQTicker # <-- Importamos la nueva librería
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
@@ -15,7 +16,6 @@ st.write("Ingresa los tickers de las acciones, selecciona un rango de fechas y v
 with st.sidebar:
     st.header("Parámetros de Análisis")
     
-    # Input para los tickers
     tickers_input = st.text_area(
         "Códigos de acciones (separados por coma o salto de línea):",
         "BAP\nBBVA.MC\nMO\nPFE"
@@ -27,7 +27,6 @@ with st.sidebar:
     fecha_inicio = st.date_input("Fecha Inicial", value=hace_un_ano)
     fecha_fin = st.date_input("Fecha Final", value=hoy)
     
-    # ¡Aquí es donde se define analizar_btn!
     analizar_btn = st.button("Analizar Rendimiento", type="primary")
 
 # === 2. Lógica Principal ===
@@ -39,15 +38,14 @@ if analizar_btn:
     elif fecha_inicio >= fecha_fin:
         st.error("La fecha inicial debe ser menor a la fecha final.")
     else:
-        with st.spinner("Descargando datos históricos e información de dividendos..."):
+        with st.spinner("Descargando datos históricos y calculando dividendos..."):
             all_data = []
             dividendos_data = []
 
             for ticker in tickers_list:
                 try:
+                    # --- 1. Descarga de Precios con yfinance (Funciona bien para gráficos) ---
                     accion_yf = yf.Ticker(ticker)
-                    
-                    # --- 1. Descarga de Precios (Para el gráfico) ---
                     data = accion_yf.history(start=fecha_inicio, end=fecha_fin)
 
                     if not data.empty and "Close" in data.columns:
@@ -65,26 +63,32 @@ if analizar_btn:
                     else:
                         st.warning(f"No se encontraron precios para {ticker}.")
 
-                    # --- 2. Extracción de Dividendos (Aislado para que no rompa el código si falla) ---
+                    # --- 2. Extracción de Dividendos con YAHOOQUERY (Nueva librería) ---
                     div_rate = "N/A"
                     div_yield_str = "N/A"
                     
                     try:
-                        info_ticker = accion_yf.info
-                        # Validamos que info_ticker realmente traiga un diccionario de datos
-                        if isinstance(info_ticker, dict) and "symbol" in info_ticker:
-                            div_rate = info_ticker.get("dividendRate", "N/A")
-                            div_yield = info_ticker.get("dividendYield", "N/A")
+                        # yq_ticker consulta la info fundamental por otra ruta
+                        yq_ticker = YQTicker(ticker)
+                        detalles = yq_ticker.summary_detail
+                        
+                        # yahooquery devuelve un diccionario donde la llave es el ticker
+                        if isinstance(detalles, dict) and ticker in detalles:
+                            info_accion = detalles[ticker]
                             
-                            if div_yield != "N/A" and div_yield is not None:
-                                div_yield_str = f"{div_yield * 100:.2f}%"
-                            if div_rate is None:
-                                div_rate = "N/A"
-                    except Exception:
-                        # Si Yahoo bloquea el .info, ignoramos el error en silencio
+                            # Verificamos que no devuelva un string de error (a veces pasa si el ticker no existe)
+                            if isinstance(info_accion, dict):
+                                div_rate = info_accion.get("dividendRate", "N/A")
+                                div_yield = info_accion.get("dividendYield", "N/A")
+                                
+                                if div_yield != "N/A" and div_yield is not None:
+                                    div_yield_str = f"{div_yield * 100:.2f}%"
+                                if div_rate is None:
+                                    div_rate = "N/A"
+                    except Exception as e:
+                        # Si yahooquery falla, lo pasamos en silencio
                         pass
 
-                    # Guardamos la info (tenga datos o diga "N/A")
                     dividendos_data.append({
                         "Acción": ticker,
                         "Dividendo Anual (Efectivo)": div_rate,
@@ -92,7 +96,7 @@ if analizar_btn:
                     })
 
                 except Exception as e:
-                    st.error(f"Error grave procesando {ticker}. Revisa el código de la acción.")
+                    st.error(f"Error grave procesando {ticker}. Revisa el código.")
 
             # === 3. Visualización de Resultados ===
             if all_data:

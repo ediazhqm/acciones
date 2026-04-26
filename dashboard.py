@@ -17,7 +17,7 @@ with st.sidebar:
     
     tickers_input = st.text_area(
         "Códigos de acciones (separados por coma o salto de línea):",
-        "BAP\nBBVA.MC\nMO\nPFE"
+        "BAP\nBBVA\nFERREYC1.LM"
     )
     
     hoy = datetime.today()

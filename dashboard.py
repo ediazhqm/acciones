@@ -16,13 +16,11 @@ with st.sidebar:
     st.header("Parámetros de Análisis")
     
     # Input para los tickers (permite comas o saltos de línea)
-    # He dejado BAP, BBVA, MO y PFE como ejemplo por defecto
     tickers_input = st.text_area(
         "Códigos de acciones (separados por coma o salto de línea):",
         "BAP\nBBVA.MC\nMO\nPFE"
     )
     
-    # Selectores de fecha
     hoy = datetime.today()
     hace_un_ano = hoy - timedelta(days=365)
     
@@ -33,7 +31,7 @@ with st.sidebar:
 
 # === 2. Lógica Principal ===
 if analizar_btn:
-    # Limpiar y procesar la lista de tickers
+    # Limpiar la lista de tickers eliminando espacios y caracteres raros
     tickers_list = [t.strip().upper() for t in re.split(r'[,\n]+', tickers_input) if t.strip()]
     
     if not tickers_list:
@@ -47,30 +45,32 @@ if analizar_btn:
 
             for ticker in tickers_list:
                 try:
-                    # --- Descarga de Historial ---
-                    data = yf.download(ticker, start=fecha_inicio, end=fecha_fin, progress=False)
+                    # --- Nueva forma más estable de descarga ---
+                    accion_yf = yf.Ticker(ticker)
+                    
+                    # history() es mucho más robusto que download()
+                    data = accion_yf.history(start=fecha_inicio, end=fecha_fin)
 
-                    if not data.empty and "Close" in data:
+                    if not data.empty and "Close" in data.columns:
                         serie = data["Close"].dropna()
                         
-                        # Si yfinance devuelve un MultiIndex o un DataFrame (común en versiones recientes)
-                        if isinstance(serie, pd.DataFrame):
-                            serie = serie.iloc[:, 0]
-                            
                         if not serie.empty:
                             precio_ini = float(serie.iloc[0])
-                            # Calcular variación porcentual desde la fecha de inicio seleccionada
                             variacion = ((serie - precio_ini) / precio_ini) * 100
                             
                             variacion_df = variacion.reset_index()
+                            # Renombrar columnas asegurando que la fecha sea estándar
                             variacion_df.columns = ['Date', 'Variacion_Pct']
+                            # Eliminar zona horaria si la tiene, para evitar errores de Plotly
+                            variacion_df['Date'] = pd.to_datetime(variacion_df['Date']).dt.tz_localize(None)
                             variacion_df['Accion'] = ticker
                             all_data.append(variacion_df)
+                    else:
+                        st.warning(f"No hay precios históricos para {ticker} en esas fechas.")
                     
                     # --- Extracción de Dividendos ---
-                    info_ticker = yf.Ticker(ticker).info
+                    info_ticker = accion_yf.info
                     
-                    # Extraer dividendo en efectivo y porcentaje (Yield)
                     div_rate = info_ticker.get("dividendRate", "N/A")
                     div_yield = info_ticker.get("dividendYield", "N/A")
                     
@@ -89,13 +89,12 @@ if analizar_btn:
                     })
 
                 except Exception as e:
-                    st.warning(f"No se pudieron obtener datos para {ticker}. Verifica que el ticker sea correcto.")
+                    st.warning(f"Error procesando {ticker}: Verifica el ticker o la conexión a Yahoo Finance.")
 
             # === 3. Visualización de Resultados ===
             if all_data:
                 combined_df = pd.concat(all_data, ignore_index=True)
 
-                # Gráfico interactivo con Plotly
                 st.subheader("📊 Variación Porcentual de las Acciones")
                 fig = px.line(
                     combined_df, 
@@ -113,12 +112,9 @@ if analizar_btn:
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Tabla de dividendos
                 st.subheader("💰 Resumen de Dividendos Anuales")
                 df_dividendos = pd.DataFrame(dividendos_data)
-                
-                # st.dataframe permite ordenar las columnas fácilmente dando clic en las cabeceras
                 st.dataframe(df_dividendos, use_container_width=True, hide_index=True)
 
             else:
-                st.error("No se encontraron datos de precios para los tickers ingresados en ese rango de fechas.")
+                st.error("No se pudieron generar los gráficos. Verifica los tickers y vuelve a intentar.")

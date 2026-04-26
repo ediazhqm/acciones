@@ -1,6 +1,5 @@
 import streamlit as st
 import yfinance as yf
-from yahooquery import Ticker as YQTicker # <-- Importamos la nueva librería
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
@@ -10,7 +9,7 @@ import re
 st.set_page_config(page_title="Análisis de Tendencias y Dividendos", page_icon="📈", layout="wide")
 
 st.title("📈 Análisis de Tendencias de Acciones y Dividendos")
-st.write("Ingresa los tickers de las acciones, selecciona un rango de fechas y visualiza su rendimiento comparativo junto con sus dividendos anuales.")
+st.write("Ingresa los tickers de las acciones, selecciona un rango de fechas y visualiza su rendimiento comparativo.")
 
 # === 1. Barra Lateral para Inputs ===
 with st.sidebar:
@@ -38,14 +37,15 @@ if analizar_btn:
     elif fecha_inicio >= fecha_fin:
         st.error("La fecha inicial debe ser menor a la fecha final.")
     else:
-        with st.spinner("Descargando datos históricos y calculando dividendos..."):
+        with st.spinner("Descargando historial y calculando dividendos manualmente..."):
             all_data = []
             dividendos_data = []
 
             for ticker in tickers_list:
                 try:
-                    # --- 1. Descarga de Precios con yfinance (Funciona bien para gráficos) ---
                     accion_yf = yf.Ticker(ticker)
+                    
+                    # --- 1. Descarga de Precios (Para el gráfico) ---
                     data = accion_yf.history(start=fecha_inicio, end=fecha_fin)
 
                     if not data.empty and "Close" in data.columns:
@@ -63,40 +63,37 @@ if analizar_btn:
                     else:
                         st.warning(f"No se encontraron precios para {ticker}.")
 
-                    # --- 2. Extracción de Dividendos con YAHOOQUERY (Nueva librería) ---
+                    # --- 2. Cálculo Manual de Dividendos (Vía Historial, a prueba de bloqueos) ---
+                    # Descargamos exactamente el último año para sumar los dividendos pagados (TTM)
+                    data_1y = accion_yf.history(period="1y")
+                    
                     div_rate = "N/A"
                     div_yield_str = "N/A"
                     
-                    try:
-                        # yq_ticker consulta la info fundamental por otra ruta
-                        yq_ticker = YQTicker(ticker)
-                        detalles = yq_ticker.summary_detail
+                    if not data_1y.empty and "Dividends" in data_1y.columns and "Close" in data_1y.columns:
+                        # Sumar todos los dividendos pagados en los últimos 12 meses
+                        total_dividendos_1y = data_1y["Dividends"].sum()
                         
-                        # yahooquery devuelve un diccionario donde la llave es el ticker
-                        if isinstance(detalles, dict) and ticker in detalles:
-                            info_accion = detalles[ticker]
-                            
-                            # Verificamos que no devuelva un string de error (a veces pasa si el ticker no existe)
-                            if isinstance(info_accion, dict):
-                                div_rate = info_accion.get("dividendRate", "N/A")
-                                div_yield = info_accion.get("dividendYield", "N/A")
-                                
-                                if div_yield != "N/A" and div_yield is not None:
-                                    div_yield_str = f"{div_yield * 100:.2f}%"
-                                if div_rate is None:
-                                    div_rate = "N/A"
-                    except Exception as e:
-                        # Si yahooquery falla, lo pasamos en silencio
-                        pass
+                        # Obtener el último precio de cierre disponible
+                        precio_actual = data_1y["Close"].iloc[-1]
+                        
+                        if total_dividendos_1y > 0 and precio_actual > 0:
+                            div_rate = f"{total_dividendos_1y:.2f}"
+                            # Calculamos el Yield: (Dividendos totales / Precio actual) * 100
+                            div_yield = (total_dividendos_1y / precio_actual) * 100
+                            div_yield_str = f"{div_yield:.2f}%"
+                        else:
+                            div_rate = "0.00"
+                            div_yield_str = "0.00%"
 
                     dividendos_data.append({
                         "Acción": ticker,
-                        "Dividendo Anual (Efectivo)": div_rate,
-                        "Dividend Yield (%)": div_yield_str
+                        "Div. Pagado Último Año": div_rate,
+                        "Dividend Yield Calculado (%)": div_yield_str
                     })
 
                 except Exception as e:
-                    st.error(f"Error grave procesando {ticker}. Revisa el código.")
+                    st.error(f"Error procesando {ticker}.")
 
             # === 3. Visualización de Resultados ===
             if all_data:
@@ -119,9 +116,9 @@ if analizar_btn:
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-                st.subheader("💰 Resumen de Dividendos Anuales")
+                st.subheader("💰 Resumen de Dividendos (Basado en historial de 1 año)")
                 df_dividendos = pd.DataFrame(dividendos_data)
                 st.dataframe(df_dividendos, use_container_width=True, hide_index=True)
 
             else:
-                st.error("No se pudieron generar los gráficos. Verifica los tickers y vuelve a intentar.")
+                st.error("No se pudieron generar los gráficos.")

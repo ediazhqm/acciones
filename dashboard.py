@@ -1,37 +1,5 @@
-import streamlit as st
-import yfinance as yf
-import pandas as pd
-import plotly.express as px
-from datetime import datetime, timedelta
-import re
-
-# === Configuración básica de la página ===
-st.set_page_config(page_title="Análisis de Tendencias y Dividendos", page_icon="📈", layout="wide")
-
-st.title("📈 Análisis de Tendencias de Acciones y Dividendos")
-st.write("Ingresa los tickers de las acciones, selecciona un rango de fechas y visualiza su rendimiento comparativo junto con sus dividendos anuales.")
-
-# === 1. Barra Lateral para Inputs ===
-with st.sidebar:
-    st.header("Parámetros de Análisis")
-    
-    # Input para los tickers (permite comas o saltos de línea)
-    tickers_input = st.text_area(
-        "Códigos de acciones (separados por coma o salto de línea):",
-        "BAP\nBBVA.MC\nMO\nPFE"
-    )
-    
-    hoy = datetime.today()
-    hace_un_ano = hoy - timedelta(days=365)
-    
-    fecha_inicio = st.date_input("Fecha Inicial", value=hace_un_ano)
-    fecha_fin = st.date_input("Fecha Final", value=hoy)
-    
-    analizar_btn = st.button("Analizar Rendimiento", type="primary")
-
 # === 2. Lógica Principal ===
 if analizar_btn:
-    # Limpiar la lista de tickers eliminando espacios y caracteres raros
     tickers_list = [t.strip().upper() for t in re.split(r'[,\n]+', tickers_input) if t.strip()]
     
     if not tickers_list:
@@ -45,10 +13,9 @@ if analizar_btn:
 
             for ticker in tickers_list:
                 try:
-                    # --- Nueva forma más estable de descarga ---
                     accion_yf = yf.Ticker(ticker)
                     
-                    # history() es mucho más robusto que download()
+                    # --- 1. Descarga de Precios (Para el gráfico) ---
                     data = accion_yf.history(start=fecha_inicio, end=fecha_fin)
 
                     if not data.empty and "Close" in data.columns:
@@ -59,29 +26,33 @@ if analizar_btn:
                             variacion = ((serie - precio_ini) / precio_ini) * 100
                             
                             variacion_df = variacion.reset_index()
-                            # Renombrar columnas asegurando que la fecha sea estándar
                             variacion_df.columns = ['Date', 'Variacion_Pct']
-                            # Eliminar zona horaria si la tiene, para evitar errores de Plotly
                             variacion_df['Date'] = pd.to_datetime(variacion_df['Date']).dt.tz_localize(None)
                             variacion_df['Accion'] = ticker
                             all_data.append(variacion_df)
                     else:
-                        st.warning(f"No hay precios históricos para {ticker} en esas fechas.")
-                    
-                    # --- Extracción de Dividendos ---
-                    info_ticker = accion_yf.info
-                    
-                    div_rate = info_ticker.get("dividendRate", "N/A")
-                    div_yield = info_ticker.get("dividendYield", "N/A")
-                    
-                    if div_yield != "N/A" and div_yield is not None:
-                        div_yield_str = f"{div_yield * 100:.2f}%"
-                    else:
-                        div_yield_str = "N/A"
-                        
-                    if div_rate is None:
-                        div_rate = "N/A"
+                        st.warning(f"No se encontraron precios para {ticker}.")
 
+                    # --- 2. Extracción de Dividendos (Aislado para que no rompa el código si falla) ---
+                    div_rate = "N/A"
+                    div_yield_str = "N/A"
+                    
+                    try:
+                        info_ticker = accion_yf.info
+                        # Validamos que info_ticker realmente traiga un diccionario de datos
+                        if isinstance(info_ticker, dict) and "symbol" in info_ticker:
+                            div_rate = info_ticker.get("dividendRate", "N/A")
+                            div_yield = info_ticker.get("dividendYield", "N/A")
+                            
+                            if div_yield != "N/A" and div_yield is not None:
+                                div_yield_str = f"{div_yield * 100:.2f}%"
+                            if div_rate is None:
+                                div_rate = "N/A"
+                    except Exception:
+                        # Si Yahoo bloquea el .info, ignoramos el error en silencio
+                        pass
+
+                    # Guardamos la info (tenga datos o diga "N/A")
                     dividendos_data.append({
                         "Acción": ticker,
                         "Dividendo Anual (Efectivo)": div_rate,
@@ -89,7 +60,8 @@ if analizar_btn:
                     })
 
                 except Exception as e:
-                    st.warning(f"Error procesando {ticker}: Verifica el ticker o la conexión a Yahoo Finance.")
+                    # Este error ahora solo saldrá si falla absolutamente todo con el ticker
+                    st.error(f"Error grave procesando {ticker}. Revisa el código de la acción.")
 
             # === 3. Visualización de Resultados ===
             if all_data:

@@ -1,3 +1,35 @@
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import plotly.express as px
+from datetime import datetime, timedelta
+import re
+
+# === Configuración básica de la página ===
+st.set_page_config(page_title="Análisis de Tendencias y Dividendos", page_icon="📈", layout="wide")
+
+st.title("📈 Análisis de Tendencias de Acciones y Dividendos")
+st.write("Ingresa los tickers de las acciones, selecciona un rango de fechas y visualiza su rendimiento comparativo junto con sus dividendos anuales.")
+
+# === 1. Barra Lateral para Inputs ===
+with st.sidebar:
+    st.header("Parámetros de Análisis")
+    
+    # Input para los tickers
+    tickers_input = st.text_area(
+        "Códigos de acciones (separados por coma o salto de línea):",
+        "BAP\nBBVA.MC\nMO\nPFE"
+    )
+    
+    hoy = datetime.today()
+    hace_un_ano = hoy - timedelta(days=365)
+    
+    fecha_inicio = st.date_input("Fecha Inicial", value=hace_un_ano)
+    fecha_fin = st.date_input("Fecha Final", value=hoy)
+    
+    # ¡Aquí es donde se define analizar_btn!
+    analizar_btn = st.button("Analizar Rendimiento", type="primary")
+
 # === 2. Lógica Principal ===
 if analizar_btn:
     tickers_list = [t.strip().upper() for t in re.split(r'[,\n]+', tickers_input) if t.strip()]
@@ -60,7 +92,6 @@ if analizar_btn:
                     })
 
                 except Exception as e:
-                    # Este error ahora solo saldrá si falla absolutamente todo con el ticker
                     st.error(f"Error grave procesando {ticker}. Revisa el código de la acción.")
 
             # === 3. Visualización de Resultados ===
